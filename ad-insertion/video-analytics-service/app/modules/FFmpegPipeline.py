@@ -153,12 +153,11 @@ class FFmpegPipeline(Pipeline):
         new_filters=[]
         for _filter in filters:
             filter_params = self._get_filter_params(_filter)
-            if ( (filter_params['type'] in FFmpegPipeline.GVA_INFERENCE_FILTER_TYPES) and
-                 ("VA_DEVICE_DEFAULT" in filter_params['model'])):
-                device="CPU"
-                if ("device" in filter_params):
+            if ( (filter_params['type'] in FFmpegPipeline.GVA_INFERENCE_FILTER_TYPES)):
+                device='CPU'
+                if ('device' in filter_params):
                     device = FFmpegPipeline.DEVICEID_MAP[int(filter_params['device'])]
-                filter_params["model"] = ModelManager.get_default_network_for_device(device,filter_params["model"])
+                filter_params['model'] = ModelManager.get_default_network_for_device(device,filter_params['model'])
                 new_filters.append(self._join_filter_params(filter_params))
             else:
                 new_filters.append(_filter)

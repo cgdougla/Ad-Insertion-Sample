@@ -9,13 +9,26 @@ from modules.Pipeline import Pipeline  # pylint: disable=import-error
 from modules.PipelineManager import PipelineManager  # pylint: disable=import-error
 from modules.ModelManager import ModelManager  # pylint: disable=import-error
 from common.utils import logging  # pylint: disable=import-error
-
 import gi  # pylint: disable=import-error
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GObject  # pylint: disable=import-error
 
 logger = logging.get_logger('GSTPipeline', is_static=True)
 
+class Default(dict):
+    def __missing__(self, key):
+        return Default()
+        
+class CustomStringFormatter(string.Formatter):
+    def get_field(self, field_name, args, kwargs):
+        obj,used_key = super().get_field(field_name,args,kwargs)
+        if obj:
+            return obj,used_key
+        return '{' + field_name + '}',used_key 
+    def get_value(self, key, args, kwargs):
+        if key in kwargs:
+            return super().get_value(key,args,kwargs)
+        return Default()
 
 class GStreamerPipeline(Pipeline):
 
@@ -24,7 +37,6 @@ class GStreamerPipeline(Pipeline):
     GVA_INFERENCE_ELEMENT_TYPES = ["GstGvaDetect",
                                    "GstGvaClassify",
                                    "GstGvaInference"]
-
 
     def __init__(self, id, config, models, request):
         self.config = config
@@ -133,15 +145,17 @@ class GStreamerPipeline(Pipeline):
                         logger.debug("parameter given for element but no element found")
 
     def _add_default_models(self):
-        gva_elements = [e for e in self.pipeline.iterate_elements() if (e.__gtype__.name in self.GVA_INFERENCE_ELEMENT_TYPES and "VA_DEVICE_DEFAULT" in e.get_property("model"))]
+        gva_elements = [e for e in self.pipeline.iterate_elements() if (e.__gtype__.name in self.GVA_INFERENCE_ELEMENT_TYPES)]
         for e in gva_elements:
             network = ModelManager.get_default_network_for_device(e.get_property("device"),e.get_property("model"))
             logger.debug("Setting model to {} for element {}".format(network,e.get_name()))
             e.set_property("model",network)
-            
+
     @staticmethod
     def validate_config(config):
         template = config["template"]
+        customFormatter = CustomStringFormatter()
+        template = customFormatter.vformat(template, [], {"models":ModelManager.models})
         pipeline = Gst.parse_launch(template)
         appsink = pipeline.get_by_name("appsink")
         jsonmetaconvert = pipeline.get_by_name("jsonmetaconvert")

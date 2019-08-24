@@ -20,10 +20,7 @@ class ModelsDict(MutableMapping):
         del self._dict[key]    
     def __getitem__(self, key):
         if (key=="network"):
-            if ('default' in self._dict["networks"]):
-                return self._dict["networks"]["default"]
-            else:
-                return "{{models[{}][{}][VA_DEVICE_DEFAULT][network]}}".format(self._model_name,self._model_version)
+            return self._dict["networks"]["default"]
         if (key in self._dict["networks"]):
             return self._dict["networks"][key]
         return self._dict[key]
@@ -34,7 +31,7 @@ class ModelsDict(MutableMapping):
 
 class ModelManager:
     models = None
-    network_preference = {'CPU':"FP32",
+    network_preference = {'CPU':"INT8", 
                           'HDDL':"FP16",
                           'GPU':"FP16",
                           'VPU':"FP16"}
@@ -43,7 +40,7 @@ class ModelManager:
     def _get_model_proc(path):
         candidates=fnmatch.filter(os.listdir(path), "*.json")
         if (len(candidates)>1):
-            raise Exception("Multiple model proc files found in %s" %(path,))
+            raise Exception("Multiple model proc files found in {}".format(path))
         elif(len(candidates)==1):
             return os.path.abspath(os.path.join(path,candidates[0]))
         return None
@@ -52,7 +49,7 @@ class ModelManager:
     def _get_model_network(path):
         candidates=fnmatch.filter(os.listdir(path), "*.xml")
         if (len(candidates)>1):
-            raise Exception("Multiple networks found in %s" %(path,))
+            raise Exception("Multiple networks found in {}".format(path))
         elif(len(candidates)==1):
             return os.path.abspath(os.path.join(path,candidates[0]))
         return None
@@ -60,24 +57,40 @@ class ModelManager:
     @staticmethod
     def _get_model_networks(path):
         networks = {}
-        default = ModelManager._get_model_network(path)
-        if (default):
-            networks["default"] = ModelManager._get_model_network(path)
         for network_type in os.listdir(path):
             network_type_path = os.path.join(path,network_type)
             if (os.path.isdir(network_type_path)):
                 network = ModelManager._get_model_network(network_type_path)
                 if (network):
-                    networks[network_type] = {'network':network}
-        return networks
+                    networks[network_type.upper()] = network
+        device_to_network = {}
+        for device, precision in ModelManager.network_preference.items():
+            if precision in networks:
+                device_to_network[device] = networks[precision]
+            elif "FP32" in networks:
+                device_to_network[device] = networks["FP32"]
+            else:
+                raise Exception("No preferred network {prec} or default FP32".format(prec=precision))
+        
+        default = ModelManager._get_model_network(path)
+        if (default):
+            device_to_network["default"] = default
+        else:
+            device_to_network["default"] = device_to_network["CPU"]
+            
+        return device_to_network
 
     @staticmethod
     def get_default_network_for_device(device,model):
-        model=model.replace("VA_DEVICE_DEFAULT",ModelManager.network_preference[device])
-        model=string.Formatter().vformat(model, [], {'models':ModelManager.models})
-        return model
-    
-    
+        try:
+            ver = os.path.dirname(os.path.dirname(model))
+            model_name = os.path.basename(os.path.dirname(ver))
+            ver = int(os.path.basename(ver))
+            return ModelManager.models[model_name][ver][device]
+        except Exception as error:
+            logger.error("Error replacing model {model} with preferred device model for {device}: {error}".format(model=model, device=device,error=error))
+            return model
+
     @staticmethod
     def load_config(model_dir,network_preference):
         logger.info("Loading Models from Path {path}".format(path=os.path.abspath(model_dir)))
@@ -95,14 +108,8 @@ class ModelManager:
                     if (os.path.isdir(version_path)):
                         version = int(version)
                         proc = ModelManager._get_model_proc(version_path)
-                        networks = ModelManager._get_model_networks(version_path)
+                        networks = ModelManager._get_model_networks(version_path) 
                         if (proc) and (networks):
-                            for key in networks:
-                                networks[key].update({"proc":proc,
-                                                      "version":version,
-                                                      "type":"IntelDLDT",
-                                                      "description":model_name})
-                                
                             models[model_name] = {version:ModelsDict(model_name,
                                                                      version,
                                 {"networks":networks,
@@ -115,7 +122,6 @@ class ModelManager:
                             
             except Exception as error:
                 logger.error("Error Loading Model {model_name} from: {model_dir}: {err}".format(err=error,model_name=model_name,model_dir=model_dir))
-
         ModelManager.models = models
         
         logger.info("Completed Loading Models")

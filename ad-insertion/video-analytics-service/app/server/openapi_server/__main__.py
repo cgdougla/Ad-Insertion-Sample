@@ -55,8 +55,8 @@ def parse_network_preference(options):
 
 def main(options):
         
-    PipelineManager.load_config(os.path.join(CONFIG_PATH, options.pipeline_dir), MAX_RUNNING_PIPELINES)
     ModelManager.load_config(os.path.join(CONFIG_PATH, options.model_dir),parse_network_preference(options))
+    PipelineManager.load_config(os.path.join(CONFIG_PATH, options.pipeline_dir), MAX_RUNNING_PIPELINES)
 
     asyncio.set_event_loop(asyncio.new_event_loop())
 
